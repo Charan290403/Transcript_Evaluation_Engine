@@ -320,6 +320,8 @@ Content-Type: application/json
   "sentimentScore": 12,
   "comments": "Very good clarity and engagement."
 }
+
+
 ```
 <img width="1141" height="681" alt="Screenshot (48)" src="https://github.com/user-attachments/assets/801469a4-9f20-4734-bf10-74e0b351fae6" />
 
@@ -331,6 +333,7 @@ WORKFLOW SCHEMA:
 # 🖨 HTML Output Example
 
 The HTML Output Node produces a complete styled scorecard, ready for printing or emailing.
+
 
 
 
