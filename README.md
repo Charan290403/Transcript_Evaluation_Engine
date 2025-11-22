@@ -321,8 +321,12 @@ Content-Type: application/json
   "comments": "Very good clarity and engagement."
 }
 ```
+<img width="1141" height="681" alt="Screenshot (48)" src="https://github.com/user-attachments/assets/801469a4-9f20-4734-bf10-74e0b351fae6" />
 
----
+WORKFLOW SCHEMA:
+
+<img width="1275" height="708" alt="2025-11-22" src="https://github.com/user-attachments/assets/3c80627e-21fb-4014-8a0e-98c2605abe83" />
+
 
 # 🖨 HTML Output Example
 
