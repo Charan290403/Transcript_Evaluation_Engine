@@ -282,14 +282,19 @@ docker run -it --rm \
 
 ## 4️⃣ **Start Testing**
 
+start your workflow first
+
+then run postman command 
+
 Use Postman:
 method : POST 
-**https://charan29.app.n8n.cloud/webhook-test/rubric-evaluator**
+URL : https://charan29.app.n8n.cloud/webhook-test/rubric-evaluator
 BODY : JSON
 {
   "transcript": "Hello everyone, myself Muskan, studying in class 8th B section from Christ Public School. I am 13 years old. I live with my family. There are 3 people in my family, me, my mother and my father.One special thing about my family is that they are very kind hearted to everyone and soft spoken. One thing I really enjoy is play, playing cricket and taking wickets.A fun fact about me is that I see in mirror and talk by myself. One thing people don't know about me is that I once stole a toy from one of my cousin.My favorite subject is science because it is very interesting. Through science I can explore the whole world and make the discoveries and improve the lives of others. Thank you for listening"
 }
 
+ FINALLY YOU WILL GET EMAIL OF REPORT:
 
 Second option :
 ```bash
