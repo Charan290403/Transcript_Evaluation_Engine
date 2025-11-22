@@ -1,0 +1,250 @@
+{
+  "name": "My workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.languagetool.org/v2/check",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/x-www-form-urlencoded"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "text",
+              "value": "=={{ $json.body.transcript }}"
+            },
+            {
+              "name": "language",
+              "value": "en-US"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        224,
+        -80
+      ],
+      "id": "97123e3f-3dcf-4649-94c1-fd12f5d47d86",
+      "name": "LanguageTool"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://text-processing.com/api/sentiment/",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "text",
+              "value": "=={{ $(\"Webhook\").item.json.body.transcript }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        432,
+        -80
+      ],
+      "id": "097ef245-36f6-42c2-9082-aa9602111757",
+      "name": "Sentiment API"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $json.data;\nconst parsed = JSON.parse(raw);\n\nreturn [\n  {\n    json: {\n      sentimentLabel: parsed.label,\n      probability: parsed.probability\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        -80
+      ],
+      "id": "a3e32bf0-a1fd-4f1d-81b8-6d62184f7315",
+      "name": "Sentiment Parse"
+    },
+    {
+      "parameters": {
+        "jsCode": "/************************************************************\n  FLUENCY METRICS EXTRACTOR\n  - Word Count\n  - Sentence Count\n  - Filler Words Count\n************************************************************/\n\n// Get transcript from Webhook\nconst transcript = $(\"Webhook\").item.json.body.transcript || \"\";\n\n// --- Word Count ---\nconst wordCount = transcript.trim().length > 0 \n  ? transcript.trim().split(/\\s+/).length \n  : 0;\n\n// --- Sentence Count ---\nconst sentenceCount = transcript\n  .split(/[.!?]+/)\n  .filter(s => s.trim().length > 0)\n  .length;\n\n// --- Filler Words Detection ---\nconst fillers = [\n  \"um\",\n  \"uh\",\n  \"like\",\n  \"you know\",\n  \"basically\",\n  \"literally\",\n  \"actually\",\n  \"kinda\",\n  \"sort of\"\n];\n\nlet fillerCount = 0;\nfor (const f of fillers) {\n  const regex = new RegExp(`\\\\b${f}\\\\b`, \"gi\");\n  const matches = transcript.match(regex);\n  if (matches) fillerCount += matches.length;\n}\n\n// Return results\nreturn [\n  {\n    json: {\n      transcript,\n      wordCount,\n      sentenceCount,\n      fillerCount\n    }\n  }\n];\n\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        32,
+        128
+      ],
+      "id": "2d23d191-2704-43c7-8d60-1ab535f94d4a",
+      "name": "Fluency Metrics"
+    },
+    {
+      "parameters": {
+        "jsCode": "/************************************************************\n  Rubric Generator - complete scoring (for n8n Function Node)\n  Assumes node names:\n    - Webhook (input)\n    - LanguageTool (HTTP Request to LT)\n    - Sentiment Parse (parses sentiment JSON -> { sentimentLabel, positiveProb })\n    - Fluency Metrics (wordCount, sentenceCount, fillerCount)\n************************************************************/\n\n// Helper: safe getter\nconst getNode = (name) => $node[name] && $node[name].json ? $node[name].json : {};\n\n// INPUTS\nconst transcript = $node[\"Webhook\"].json.body && $node[\"Webhook\"].json.body.transcript\n  ? $node[\"Webhook\"].json.body.transcript.toString()\n  : \"\";\n\n// LanguageTool matches array\nconst lt = $node[\"LanguageTool\"].json;\nconst matches = lt && lt.matches ? lt.matches : [];\nconst grammarErrors = matches.length || 0;\n\n// Sentiment parse output node must return:\n// { sentimentLabel: \"pos\"|\"neg\"|\"neutral\", positiveProb: 0.0..1.0 }\nconst sentimentNode = getNode(\"Sentiment Parse\");\nconst sentimentLabel = (sentimentNode.sentimentLabel || sentimentNode.label || \"neutral\").toString().toLowerCase();\nconst positiveProb = Number(sentimentNode.positiveProb ?? sentimentNode.probability?.pos ?? 0);\n\n// Fluency metrics\nconst fm = getNode(\"Fluency Metrics\");\nconst wordCount = Number(fm.wordCount || 0);\nconst sentenceCount = Number(fm.sentenceCount || 0);\nconst fillerCount = Number(fm.fillerCount || 0);\n\n// Derived metrics\nconst totalWords = Math.max(1, wordCount); // avoid divide by zero\nconst errorsPer100 = (grammarErrors / totalWords) * 100; // grammar errors per 100 words\n\n// ----- 1) Content & Structure (40) -----\n// 1.A Salutation (0-5)\nconst txt = transcript.toLowerCase();\n\nlet salutationScore = 0;\nlet salutationKind = \"none\";\nif (/i am excited|feeling great|excited to introduce/.test(txt)) { salutationScore = 5; salutationKind = \"excellent\"; }\nelse if (/good morning|good afternoon|good evening|good day|hello everyone/.test(txt)) { salutationScore = 4; salutationKind = \"good\"; }\nelse if (/\\bhi\\b|\\bhello\\b/.test(txt)) { salutationScore = 2; salutationKind = \"normal\"; }\nelse { salutationScore = 0; salutationKind = \"none\"; }\n\n// 1.B Mandatory fields (Name, Age, School/Class, Family, Hobbies) each 4 points -> 20\n// ----- Mandatory Fields (20 points) -----\n\n// ----- Mandatory Fields (20 points) -----\n\nconst mandatory_name =\n  /\\b(my name is|myself|i am|i'm|this is)\\s+[A-Za-z]+/i.test(transcript);\n\nconst mandatory_age =\n  /\\b(\\d{1,2}\\s*(years? old)?|age\\s*[:]\\s*\\d{1,2})\\b/i.test(transcript);\n\nconst mandatory_school =\n  /\\b(class\\s*\\d{1,2}|grade\\s*\\d{1,2}|studying in|school)\\b/i.test(transcript);\n\nconst mandatory_family =\n  /\\b(family|parents|mother|father|brother|sister)\\b/i.test(transcript);\n\nconst mandatory_hobbies =\n  /\\b(hobby|my hobby|i like|i love|i enjoy|free time|favorite)\\b/i.test(transcript);\n\nlet mandatoryFound = 0;\n\nif (mandatory_name) mandatoryFound++;\nif (mandatory_age) mandatoryFound++;\nif (mandatory_school) mandatoryFound++;\nif (mandatory_family) mandatoryFound++;\nif (mandatory_hobbies) mandatoryFound++;\n\nconst mandatoryScore = mandatoryFound * 4;   // MAX = 20\n\n // each 4 points, max 20\n\n// 1.C Good-to-have (each 2 points) -> 10 total\nlet gthCount = 0;\nif (/\\b(i am from|i'm from|from)\\b/i.test(transcript)) gthCount++;\nif (/\\b(dream|ambition|goal|want to become)\\b/i.test(transcript)) gthCount++;\nif (/\\b(fun fact|interesting|unique)\\b/i.test(transcript)) gthCount++;\nif (/\\b(strength|achievement|i won|medal|certificate)\\b/i.test(transcript)) gthCount++;\nif (/\\b(family background)\\b/i.test(transcript)) gthCount++;\nconst gthScore = Math.min(5, gthCount) * 2; // max 10\n\n// 1.D Flow (5) -> check approximate order presence\n// ----- Flow (max 5 points) -----\n\n// Identify all important section positions in the text\nconst lc = transcript.toLowerCase();\n\nconst idx_salutation = lc.search(/hi|hello|good morning|good afternoon|good evening|good day|hello everyone|i am excited|feeling great/);\nconst idx_name       = lc.search(/my name is|myself|i am [a-z]+|i'm [a-z]+/);\nconst idx_mandatory  = lc.search(/(class|grade|school|years old|age|family|parents|hobby|i like|i enjoy|free time)/);\nconst idx_optional   = lc.search(/(dream|goal|ambition|interesting|fun fact|unique|achievement|strength)/);\nconst idx_closing    = lc.search(/thank you|thanks|that's all|thankyou/);\n\n// Valid flow must be: salutation < name < mandatory < optional < closing\n\n// Check that each exists (>=0)\nconst exists = (\n  idx_salutation >= 0 &&\n  idx_name >= 0 &&\n  idx_mandatory >= 0 &&\n  idx_optional >= 0 &&\n  idx_closing >= 0\n);\n\n// Check order\nconst orderCorrect = (\n  exists &&\n  idx_salutation < idx_name &&\n  idx_name < idx_mandatory &&\n  idx_mandatory < idx_optional &&\n  idx_optional < idx_closing\n);\n\n// Score\nconst flowScore = orderCorrect ? 5 : 0;\n\n\nconst contentTotal = salutationScore + mandatoryScore + gthScore + flowScore; // max 5 + 20 + 10 + 5 = 40\n\n// ----- 2) Speech Rate (10) -----\n// If you provide duration in seconds in Webhook body -> use it. Else assume 60s.\nconst durationSeconds = Number($node[\"Webhook\"].json.body.duration || $node[\"Webhook\"].json.duration || 60);\nconst wpm = Math.round((totalWords / Math.max(1, durationSeconds)) * 60);\n\nlet wpmScore = 0;\nif (wpm > 161) wpmScore = 2;\nelse if (wpm >= 141) wpmScore = 6;\nelse if (wpm >= 111) wpmScore = 10;\nelse if (wpm >= 81) wpmScore = 6;\nelse wpmScore = 2;\n\n// ----- 3) Grammar (10) -----\n// ----- Grammar (10 points) -----\n\n// Ensure wordCount is never 0\nconst wc = Math.max(1, wordCount);\n\n// Extract grammar errors safely\nconst ge = Number(grammarErrors || 0);\n\n// errors per 100 words\nconst errorsPerhund = (ge / wc) * 100;\n\n// ratio = 1 - min(errorsPer100/10, 1)\nconst ratio = 1 - Math.min(errorsPerhund / 10, 1);\n\nlet grammarScore = 0;\n\nif (ratio >= 0.90) {\n  grammarScore = 10;\n} else if (ratio >= 0.70) {\n  grammarScore = 8;\n} else if (ratio >= 0.50) {\n  grammarScore = 6;\n} else if (ratio >= 0.30) {\n  grammarScore = 4;\n} else {\n  grammarScore = 2;\n}\n\n// Keep values rounded nicely\nconst grammarBlock = {\n  grammarErrors: ge,\n  errorsPer100: Number(errorsPer100.toFixed(2)),\n  ratio: Number(ratio.toFixed(3)),\n  grammarScore\n};\ngrammar: grammarBlock\n\n// ----- 4) Vocabulary richness (TTR) (10) -----\nconst tokens = transcript.trim().split(/\\s+/).filter(t => t.trim().length>0);\nconst distinct = Array.from(new Set(tokens.map(t=>t.replace(/[^\\w]/g,\"\").toLowerCase()).filter(Boolean)));\nconst TTR = distinct.length / Math.max(1, tokens.length);\n\nlet vocabScore = 0;\nif (TTR >= 0.9) vocabScore = 10;\nelse if (TTR >= 0.7) vocabScore = 8;\nelse if (TTR >= 0.5) vocabScore = 6;\nelse if (TTR >= 0.3) vocabScore = 4;\nelse vocabScore = 2;\n\n// ----- 5) Clarity - Filler Rate (15) -----\nconst fillerRate = (fillerCount / Math.max(1, totalWords)) * 100;\nlet clarityScore = 0;\nif (fillerRate <= 3) clarityScore = 15;\nelse if (fillerRate <= 6) clarityScore = 12;\nelse if (fillerRate <= 9) clarityScore = 9;\nelse if (fillerRate <= 12) clarityScore = 6;\nelse clarityScore = 3;\n\n// ----- 6) Engagement - sentiment (15) -----\n// We'll use positiveProb (0..1)\nlet engagementScore = 0;\nif (positiveProb >= 0.9) engagementScore = 15;\nelse if (positiveProb >= 0.7) engagementScore = 12;\nelse if (positiveProb >= 0.5) engagementScore = 9;\nelse if (positiveProb >= 0.3) engagementScore = 6;\nelse engagementScore = 3;\n\n// ----- Totals -----\nconst grammarInfo = { grammarErrors, errorsPer100: Number(errorsPer100.toFixed(2)), ratio: Number(ratio.toFixed(3)) };\nconst scores = {\n  content: { salutationScore, mandatoryScore, gthScore, flowScore, total: contentTotal },\n  speech: { wpm, wpmScore },\n  grammar: { ...grammarInfo, grammarScore },\n  vocabulary: { TTR: Number(TTR.toFixed(3)), vocabScore },\n  clarity: { fillerCount, fillerRate: Number(fillerRate.toFixed(2)), clarityScore },\n  engagement: { sentimentLabel, positiveProb: Number(positiveProb.toFixed(3)), engagementScore }\n};\n\nconst totalScore = scores.content.total + scores.speech.wpmScore + scores.grammar.grammarScore + scores.vocabulary.vocabScore + scores.clarity.clarityScore + scores.engagement.engagementScore;\n\n// Build comments (short)\nconst comments = {\n  contentComment: (contentTotal>=30)?\"Very good content structure\":(contentTotal>=20)?\"Good\":\"Needs improvement\",\n  languageComment: grammarScore>=8 ? \"Strong grammar\" : grammarScore>=5 ? \"Acceptable grammar\" : \"Weak grammar\",\n  vocabComment: vocabScore>=8 ? \"Rich vocabulary\" : vocabScore>=5 ? \"Moderate vocabulary\" : \"Limited vocabulary\",\n  fluencyComment: clarityScore>=12 ? \"Clear delivery\" : \"Could reduce fillers\",\n  engagementComment: engagementScore>=12 ? \"Engaging tone\" : \"Less enthusiastic\"\n};\n\n// Output JSON\nreturn [\n  {\n    json: {\n      transcript,\n      wordCount: totalWords,\n      sentenceCount,\n      fillerCount,\n      scores,\n      totalScore,\n      comments\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        128
+      ],
+      "id": "69f28b25-76df-40c1-9aba-a9897ae8d1ce",
+      "name": "Rubric Generator"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Safe getter function\nconst g = (path, fallback=\"N/A\") => {\n  try {\n    const parts = path.split(\".\");\n    let v = $node[\"Rubric Generator\"].json;\n    for (const p of parts) v = v[p];\n    return (v === undefined || v === null || Number.isNaN(v)) ? fallback : v;\n  } catch {\n    return fallback;\n  }\n};\n\n// Helper: numeric fallback (0)\nconst n = (path) => Number(g(path, 0));\n\nconst totalScore = n(\"totalScore\");\n\n// Build HTML safely\nconst html = `\n<!DOCTYPE html>\n<html>\n<head>\n<meta charset=\"UTF-8\" />\n<title>Rubric Report</title>\n</head>\n\n<body style=\"font-family:Arial; padding:20px; background:#f4f6fb;\">\n\n<div style=\"max-width:900px; margin:auto; background:white; padding:25px; border-radius:10px; box-shadow:0 2px 10px rgba(0,0,0,0.1);\">\n\n<h2 style=\"text-align:center; color:#2a4d8f; margin-bottom:5px;\">Rubric Evaluation Report</h2>\n<p style=\"text-align:center; color:#666;\">Automatically Generated</p>\n\n<hr/>\n\n<h3 style=\"color:#333;\">Overall Score: ${totalScore}/100</h3>\n\n<table style=\"width:100%; border-collapse:collapse; margin-top:15px; font-size:15px;\">\n  <tr style=\"background:#e9eef7;\">\n    <th style=\"padding:10px; text-align:left;\">Criteria</th>\n    <th style=\"padding:10px;\">Score</th>\n    <th style=\"padding:10px;\">Details</th>\n  </tr>\n\n  <!-- Content & Structure -->\n  <tr>\n    <td style=\"padding:10px;\">Content & Structure</td>\n    <td style=\"padding:10px; text-align:center;\">${n(\"scores.content.total\")}/40</td>\n    <td style=\"padding:10px;\">\n      Salutation: ${n(\"scores.content.salutationScore\")},\n      Mandatory: ${n(\"scores.content.mandatoryScore\")},\n      Good-to-Have: ${n(\"scores.content.gthScore\")},\n      Flow: ${n(\"scores.content.flowScore\")}\n    </td>\n  </tr>\n\n  <!-- Speech Rate -->\n  <tr style=\"background:#f7f7f7;\">\n    <td style=\"padding:10px;\">Speech Rate</td>\n    <td style=\"padding:10px; text-align:center;\">${n(\"scores.speech.wpmScore\")}/10</td>\n    <td style=\"padding:10px;\">${n(\"scores.speech.wpm\")} WPM</td>\n  </tr>\n\n  <!-- Grammar -->\n  <tr>\n    <td style=\"padding:10px;\">Grammar</td>\n    <td style=\"padding:10px; text-align:center;\">${n(\"scores.grammar.grammarScore\")}/10</td>\n    <td style=\"padding:10px;\">\n      Errors: ${n(\"scores.grammar.grammarErrors\")},\n      Errors/100 words: ${n(\"scores.grammar.errorsPer100\")},\n      Ratio: ${n(\"scores.grammar.grammarRatio\")}\n    </td>\n  </tr>\n\n  <!-- Vocabulary -->\n  <tr style=\"background:#f7f7f7;\">\n    <td style=\"padding:10px;\">Vocabulary (TTR)</td>\n    <td style=\"padding:10px; text-align:center;\">${n(\"scores.vocabulary.vocabScore\")}/10</td>\n    <td style=\"padding:10px;\">TTR: ${n(\"scores.vocabulary.TTR\")}</td>\n  </tr>\n\n  <!-- Clarity -->\n  <tr>\n    <td style=\"padding:10px;\">Clarity (Fillers)</td>\n    <td style=\"padding:10px; text-align:center;\">${n(\"scores.clarity.clarityScore\")}/15</td>\n    <td style=\"padding:10px;\">\n      Fillers: ${n(\"scores.clarity.fillerCount\")},\n      Rate: ${n(\"scores.clarity.fillerRate\")}% \n    </td>\n  </tr>\n\n  <!-- Engagement -->\n  <tr style=\"background:#f7f7f7;\">\n    <td style=\"padding:10px;\">Engagement</td>\n    <td style=\"padding:10px; text-align:center;\">${n(\"scores.engagement.engagementScore\")}/15</td>\n    <td style=\"padding:10px;\">\n      Label: ${g(\"scores.engagement.sentimentLabel\", \"neutral\")},\n      Score: ${n(\"scores.engagement.positiveProb\")}\n    </td>\n  </tr>\n</table>\n\n<hr/>\n\n<h3 style=\"color:#333;\">Comments</h3>\n<ul style=\"color:#444; line-height:1.6; font-size:15px;\">\n  <li><strong>Content & Structure:</strong> ${g(\"comments.contentComment\")}</li>\n  <li><strong>Grammar:</strong> ${g(\"comments.languageComment\")}</li>\n  <li><strong>Vocabulary:</strong> ${g(\"comments.vocabComment\")}</li>\n  <li><strong>Clarity:</strong> ${g(\"comments.fluencyComment\")}</li>\n  <li><strong>Engagement:</strong> ${g(\"comments.engagementComment\")}</li>\n</ul>\n\n<p style=\"font-size:12px; text-align:right; color:#777;\">\nGenerated on ${new Date().toLocaleString()}\n</p>\n\n</div>\n\n</body>\n</html>\n`;\n\nreturn [{ html }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        384,
+        128
+      ],
+      "id": "c46495db-4aa0-4d63-b801-e7469a287a4a",
+      "name": "HTML Output"
+    },
+    {
+      "parameters": {
+        "sendTo": "charanb901@gmail.com",
+        "subject": "Rubrics Stats Report",
+        "message": "={{$node[\"HTML Output\"].json.html}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        592,
+        128
+      ],
+      "id": "c634775a-d6bf-4f2e-b357-de3b37e8822f",
+      "name": "Send a message",
+      "webhookId": "a8d991d1-c935-42e0-9d22-0096795b433f",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "3s1aKp1ZFrF7Ca2P",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "rubric-evaluator",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -64,
+        -80
+      ],
+      "id": "93050252-3ef8-4a8d-b30f-a9e2395cc4fc",
+      "name": "Webhook",
+      "webhookId": "8c731b50-0643-4b12-9f90-0156d8c2923f"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "LanguageTool": {
+      "main": [
+        [
+          {
+            "node": "Sentiment API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sentiment API": {
+      "main": [
+        [
+          {
+            "node": "Sentiment Parse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sentiment Parse": {
+      "main": [
+        [
+          {
+            "node": "Fluency Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fluency Metrics": {
+      "main": [
+        [
+          {
+            "node": "Rubric Generator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rubric Generator": {
+      "main": [
+        [
+          {
+            "node": "HTML Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTML Output": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "LanguageTool",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "853ac9e9-6722-426e-959c-277b496c144a",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "d855402e770138563528e0497c6244ec0fbf3f6b58c94a19ce1271f2a650f52d"
+  },
+  "id": "lQSYFoyueuInGeqx",
+  "tags": []
+}
