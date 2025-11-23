@@ -5,6 +5,127 @@
 ````markdown
 # 🧠 Automated Transcript Rubric Evaluation System (n8n Workflow)
 
+
+
+Below is a **clean, professional README section** explaining **how to run your n8n workflow**, including:
+
+* How to **download & import** the workflow
+* How to **add email credentials**
+* How to **set POST request with Webhook Test URL**
+* What **body format** to send (`{ "transcript": "…" }`)
+
+You can copy–paste this into your GitHub README.
+
+---
+
+# ✅ **How to Run This n8n Workflow**
+
+This workflow processes a transcript, sends it to LanguageTool for grammar/sentiment analysis, prepares a rubric, and sends results via email.
+Follow the steps below to install, import, configure, and test the workflow.
+
+---
+
+## 📥 **1. Download or Clone This Repository**
+
+You can download the ZIP file or clone the repo:
+
+```bash
+git clone https://github.com/<your-username>/<repo-name>.git
+
+
+you download json file
+import in n8n 
+```
+
+---
+
+## ⚙️ **2. Import the Workflow into n8n**
+
+1. Open your n8n instance in the browser.
+2. Go to **Workflows → Import from File**.
+3. Select the workflow JSON file from this repo (e.g., `rubric-generator.json`).
+4. Click **Import** to load it.
+
+---
+
+## 🔑 **3. Add Email Credentials (SMTP)**
+
+1. In n8n, go to **Credentials** → **New Credential**.
+2. Select **SMTP**.
+3. Enter your email provider’s details:
+
+| Field                   | Value Example              |
+| ----------------------- | -------------------------- |
+| SMTP Host               | `smtp.gmail.com`           |
+| Port                    | `465` (SSL) or `587` (TLS) |
+| User                    | your email                 |
+| Password / App Password | email app password         |
+| SSL/TLS                 | Enabled                    |
+
+4. Save the credential.
+5. Open the workflow → Email Node → select your new SMTP credential.
+
+---
+
+## 🌐 **4. Configure the Webhook Node**
+
+1. Open the **Webhook** node in the workflow.
+2. Set it to:
+
+   * **Method:** POST
+   * **Response Mode:** On Received
+3. Copy the **Test URL** shown in the node.
+4. KEEP n8n in **Test Mode**.
+
+---
+
+## 📤 **5. Send a POST Request to Test the Workflow**
+
+Use a tool like **Postman**, **Thunder Client**, or **cURL**.
+
+Before sending Post Request you need to start the workflow for listening.....
+
+### 🔧 POST URL
+
+```
+<your-n8n-webhook-test-url>
+```
+
+### 📦 Body Format
+
+Use **JSON**:
+
+```json
+{
+  "transcript": "Your input text goes here"
+}
+```
+
+This will trigger the entire workflow:
+
+* Webhook receives transcript
+* LanguageTool processes it
+* Sentiment gets parsed
+* Rubric gets generated
+* Email is sent with results
+
+---
+
+## 📧 **6. Running the Workflow in Production**
+
+When ready, switch Webhook from **Test URL → Production URL**.
+
+You will see two URLs:
+
+* `Test URL` → works only when n8n is in test mode
+* `Production URL` → always active
+
+Use test url for postman post request
+
+
+
+
+
 This project is a complete **Transcript Evaluation Engine** built using **n8n**.  
 It accepts a student introduction transcript, analyzes it using NLP and rule-based scoring, and generates a **full rubric evaluation**, including:
 
